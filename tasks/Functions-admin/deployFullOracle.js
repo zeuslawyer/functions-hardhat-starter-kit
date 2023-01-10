@@ -18,7 +18,46 @@ task(
     };
   }
 
-  console.log("Deploying Functions registry");
+  console.log("Deploying Functions oracle factory");
+  const oracleFactoryFactory = await ethers.getContractFactory(
+    "FunctionsOracleFactory"
+  );
+  const oracleFactory = overrides
+    ? await oracleFactoryFactory.deploy(overrides)
+    : await oracleFactoryFactory.deploy();
+  console.log(
+    `Waiting for transaction ${oracleFactory.deployTransaction.hash} to be confirmed...`
+  );
+  await oracleFactory.deployTransaction.wait(2);
+  console.log(
+    `FunctionsOracleFactory deployed to ${oracleFactory.address} on ${network.name}`
+  );
+
+  console.log("Deploying Functions oracle");
+  const accounts = await ethers.getSigners();
+  const deployer = accounts[0];
+  const OracleDeploymentTransaction = overrides
+    ? await oracleFactory.deployNewOracle(overrides)
+    : await oracleFactory.deployNewOracle();
+  console.log(
+    `Waiting for transaction ${OracleDeploymentTransaction.hash} to be confirmed...`
+  );
+  const OracleDeploymentReceipt = await OracleDeploymentTransaction.wait(1);
+  const FunctionsOracleAddress = OracleDeploymentReceipt.events[1].args.don;
+  const oracle = await ethers.getContractAt(
+    "FunctionsOracle",
+    FunctionsOracleAddress,
+    deployer
+  );
+  console.log(
+    `FunctionsOracle deployed to ${oracle.address} on ${network.name}`
+  );
+
+  console.log(
+    "Deploying Functions registry",
+    linkEthFeedAddress,
+    linkTokenAddress
+  );
   const registryFactory = await ethers.getContractFactory(
     "FunctionsBillingRegistry"
   );
@@ -26,9 +65,14 @@ task(
     ? await registryFactory.deploy(
         linkTokenAddress,
         linkEthFeedAddress,
+        oracle.address,
         overrides
       )
-    : await registryFactory.deploy(linkTokenAddress, linkEthFeedAddress);
+    : await registryFactory.deploy(
+        linkTokenAddress,
+        linkEthFeedAddress,
+        oracle.address
+      );
   console.log(
     `Waiting for transaction ${registry.deployTransaction.hash} to be confirmed...`
   );
@@ -56,41 +100,6 @@ task(
     config.requestTimeoutSeconds
   );
   console.log("Registry configuration set");
-
-  console.log("Deploying Functions oracle factory");
-  const oracleFactoryFactory = await ethers.getContractFactory(
-    "FunctionsOracleFactory"
-  );
-  const oracleFactory = overrides
-    ? await oracleFactoryFactory.deploy(overrides)
-    : await oracleFactoryFactory.deploy();
-  console.log(
-    `Waiting for transaction ${oracleFactory.deployTransaction.hash} to be confirmed...`
-  );
-  await oracleFactory.deployTransaction.wait(2);
-  console.log(
-    `FunctionsOracleFactory deployed to ${oracleFactory.address} on ${network.name}`
-  );
-
-  console.log("Deploying Functions oracle");
-  const accounts = await ethers.getSigners();
-  const deployer = accounts[0];
-  const OracleDeploymentTransaction = overrides
-    ? await oracleFactory.deployNewOracle(overrides)
-    : await oracleFactory.deployNewOracle();
-  console.log(
-    `Waiting for transaction ${OracleDeploymentTransaction.hash} to be confirmed...`
-  );
-  const OracleDeploymentReceipt = await OracleDeploymentTransaction.wait(1);
-  const FunctionsOracleAddress = OracleDeploymentReceipt.events[1].args.oracle;
-  const oracle = await ethers.getContractAt(
-    "FunctionsOracle",
-    FunctionsOracleAddress,
-    deployer
-  );
-  console.log(
-    `FunctionsOracle deployed to ${oracle.address} on ${network.name}`
-  );
 
   // Set up Functions Oracle
   console.log(`Accepting oracle contract ownership`);
@@ -136,9 +145,13 @@ task(
       console.log("Verifying registry contract...");
       await run("verify:verify", {
         address: registry.address,
-        constructorArguments: [linkTokenAddress, linkEthFeedAddress],
+        constructorArguments: [
+          linkTokenAddress,
+          linkEthFeedAddress,
+          oracle.address,
+        ],
       });
-      console.log("Oracle registry contract verified");
+      console.log("Billing registry contract verified");
 
       console.log("Verifying oracle factory contract...");
       await run("verify:verify", {
